@@ -4,6 +4,7 @@
 ###    Autor: pvvx    ###
 ###    Edited: Aaron Christophel ATCnetz.de    ###
 ###    Edit : Pila    ###
+###    Edited: Marc Hefter ###
 
 import sys
 import signal
@@ -17,7 +18,7 @@ import io
 import serial.tools.list_ports
 
 __progname__ = 'TLSR825x Flasher'
-__version__ = "29.11.24"
+__version__ = "25.01.25"
 
 COMPORT_MIN_BAUD_RATE=340000
 COMPORT_DEF_BAUD_RATE=921600
@@ -294,6 +295,50 @@ def activate(serialPort, tact_ms):
 	time.sleep(0.01)
 	serialPort.reset_input_buffer()
 
+def get_chip_id(serialPort):
+	if debug:
+		print('Read module chip ID (register 0x007E)...')
+	data = sws_read_data(serialPort, 0x007e, 2)
+	if data == None or len(data) != 2:
+		print('\rError Read chip ID data')
+		return 0xFFFF
+	chip_id = ((data[1] <<8) | data[0])
+	print('\r    chip ID      0x%04x' % chip_id)
+	# 0x5316	TLSR8232
+	# 0x5562	TLSR8258
+	return chip_id
+def get_chip_version(serialPort):
+	if debug:
+		print('Read module chip version (register 0x007D)...')
+	data = sws_read_data(serialPort, 0x007d, 1)
+	if data == None or len(data) != 1:
+		print('\rError Read chip version data')
+		return 0xFFFF
+	chip_version = (data[0])
+	print('\r    chip version 0x%02x' % chip_version)
+	return chip_version
+def get_flash_size(serialPort):
+	if debug:
+		print('Read module flash ID (SPI command 0x9F)...')
+	rd_sws_wr_addr_usbcom(serialPort, 0x0b3, bytearray([0x80])) # [0xb3]=0x80 ext.SWS into fifo mode
+	rd_sws_wr_addr_usbcom(serialPort, 0x0d, bytearray([0x00]))  # SPI set cns low
+	# send all data to one register (not increment address - fifo mode), cmd flash rd, addr, + launch first read
+	rd_sws_wr_addr_usbcom(serialPort, 0x0c, bytearray([0x9F]))	# get JEDEC ID command
+	rd_sws_wr_addr_usbcom(serialPort, 0x0d, bytearray([0x0A]))  # [0x0d]=0x0a SPI set auto read mode & cns low
+	# read all data from one register (not increment address - fifo mode)
+	data = sws_read_data(serialPort, 0x0c, 4)	# read 4 byte length
+	rd_sws_wr_addr_usbcom(serialPort, 0x0d, bytearray([0x01]))  # SPI set cns high
+	rd_sws_wr_addr_usbcom(serialPort, 0x0b3, bytearray([0x00])) # [0xb3]=0x00 ext.SWS into normal(ram) mode
+	if data == None or len(data) != 4 or data[0] != 0x00:
+		print('\rError Read JEDEC ID')
+		return 0xFFFFFF
+	jedec_id = ((data[1] <<16) | (data[2] <<8) | (data[3]))		# manufacturer, memory type, cap_id
+	print('\r    JEDEC ID     0x%06x' % jedec_id)
+	# flash_size in KB is coded in JEDEC ID (64K=0x10, 128K=0x11, 256K=0x12, 512K=0x13, 1M=0x14, 2M=0x15, 4M=0x16, 8M=0x17)
+	flash_size = (1 <<(jedec_id &0x0F)) <<6
+	print('\r    flash size   %d KB' % flash_size)
+	return flash_size
+
 def FlashReadBlock(serialPort, stream, offset = 0, size = 0x80000):
 	offset &= 0x00ffffff
 	rdsize = 0x100
@@ -517,6 +562,9 @@ def main():
 						if not set_sws_speed(serialPort, 48000000):
 							print('Chip sleep? -> Use reset chip (RTS-RST): see option --tact')
 							sys.exit(1)
+	get_chip_id(serialPort)
+	get_chip_version(serialPort)
+	get_flash_size(serialPort)
 	#serialPort.timeout = 0.01 # SerialPort.timeout must be set for the following operations!
 	if args.operation == 'rf':
 		offset = args.address & 0x00ffffff
