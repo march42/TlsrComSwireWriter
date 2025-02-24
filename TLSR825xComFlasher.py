@@ -271,6 +271,10 @@ def activate(serialPort, tact_ms):
 	print('Reset module (RTS low)...')
 	serialPort.setDTR(True)
 	serialPort.setRTS(True)
+	if wait > 0:
+		print('Connect power...')
+		time.sleep(wait)
+		print('Starting module (RTS high)...')
 	time.sleep(0.05)
 	serialPort.setDTR(False)
 	serialPort.setRTS(False)
@@ -478,6 +482,11 @@ def main():
 		type=arg_auto_int,
 		default=0)
 	parser.add_argument(
+		'-w', '--wait',
+		help='Time to wait for power connection (0-off, default: 0 s)',
+		type=arg_auto_int,
+		default=0)
+	parser.add_argument(
 		'-c', '--clk',
 		help='SWire CLK (default: auto, 0 - auto)',
 		type=arg_auto_int,
@@ -545,6 +554,8 @@ def main():
 	except:
 		print ('Error: Open %s, %d baud!' % (args.port, args.baud))
 		sys.exit(1)
+	global wait
+	wait = args.wait
 	if args.tact != 0:
 		# activate
 		activate(serialPort, args.tact)
